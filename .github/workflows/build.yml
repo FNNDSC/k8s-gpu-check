@@ -1,0 +1,95 @@
+name: Build
+
+on:
+  push:
+    branches: [ master ]
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-package:
+    name: Build package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Set version
+        if: github.ref_type == 'tag'
+        run: |
+          uv version '${{ github.ref_name }}'
+      - name: Build Python wheel
+        run: uv --color=always build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: ./dist
+          if-no-files-found: error
+  build-image:
+    name: Build image
+    runs-on: ubuntu-24.04
+    if: github.ref == 'refs/heads/master'
+    needs: [ build-package ]
+    steps:
+      - name: Download distributions packages
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          pattern: '*.whl'
+          path: dist
+      - name: Create Dockerfile
+        run: |
+          tee Dockerfile << EOF
+          FROM docker.io/library/python:3.14.4-alpine
+          RUN --mount=source=dist,target=/dist PYTHONDONTWRITEBYTECODE=1 pip install --no-cache-dir /dist/*.whl
+          EOF
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            docker.io/${{ github.repository }}
+            ghcr.io/${{ github.repository }}
+          tags: |
+            type=pep440,pattern={{version}}
+            type=pep440,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Login to DockerHub
+        id: dockerhub_login
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      - name: Login to GitHub Container Registry
+        id: ghcr_login
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/ppc64le
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: ${{ steps.dockerhub_login.outcome == 'success' && steps.ghcr_login.outcome == 'success' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Clone README.md
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: README.md
+      - name: Update DockerHub description
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa #v5.0.0
+        if: ${{ steps.dockerhub_login.outcome == 'success' }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          short-description: ${{ github.event.repository.description }}

@@ -1,0 +1,13 @@
+[project]
+name = "k8s-gpu-check"
+version = "0.0.0+dev"
+description = "Check GPU nodes of a Kubernetes cluster are working."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "lightkube>=0.19.1",
+    "rich>=15.0.0",
+]
+
+[project.scripts]
+k8s-gpu-check = "main:main"

@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# ruff cache
+.ruff_cache
+
+# Project metadata
+.git
+README.md
+Dockerfile
